@@ -87,8 +87,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Ralph Iteration $i of $MAX_ITERATIONS"
   echo "═══════════════════════════════════════════════════════"
 
+  # Track completed stories before iteration
+  COMPLETED_BEFORE=$(jq '[.userStories[] | select(.passes == true)] | length' "$PRD_FILE" 2>/dev/null || echo "0")
+
   # Run claude with the ralph prompt
   OUTPUT=$(cat "$SCRIPT_DIR/prompts/ralph-agent.md" | claude --dangerously-skip-permissions 2>&1 | tee /dev/stderr) || true
+
+  # Track completed stories after iteration
+  COMPLETED_AFTER=$(jq '[.userStories[] | select(.passes == true)] | length' "$PRD_FILE" 2>/dev/null || echo "0")
 
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
@@ -97,6 +103,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     send_notification "Build Complete!" "$PROJECT_NAME finished successfully after $i iterations"
     exit 0
+  fi
+
+  # Check if a story was completed and send notification
+  if [ "$COMPLETED_AFTER" -gt "$COMPLETED_BEFORE" ]; then
+    # Get the latest completed story ID
+    LATEST_STORY=$(jq -r '.userStories[] | select(.passes == true) | .id' "$PRD_FILE" 2>/dev/null | tail -1)
+    TOTAL_STORIES=$(jq '[.userStories[]] | length' "$PRD_FILE" 2>/dev/null || echo "?")
+    send_notification "Story Completed ✅" "$PROJECT_NAME: $LATEST_STORY done ($COMPLETED_AFTER/$TOTAL_STORIES)"
   fi
 
   # Check for errors that might need attention
